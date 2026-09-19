@@ -6,6 +6,7 @@ from qrypta.inventory.builder import build_inventory
 from qrypta.context.analyzer import analyze_context
 from qrypta.risk.engine import calculate_risk
 from qrypta.pqc.mapper import map_to_pqc
+from qrypta.migration.planner import create_migration_plan
 
 __all__ = [
     "scan_repository",
@@ -14,4 +15,6 @@ __all__ = [
     "analyze_context",
     "calculate_risk",
     "map_to_pqc",
+    "create_migration_plan",
 ]
+

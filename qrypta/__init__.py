@@ -7,6 +7,7 @@ from qrypta.context.analyzer import analyze_context
 from qrypta.risk.engine import calculate_risk
 from qrypta.pqc.mapper import map_to_pqc
 from qrypta.migration.planner import create_migration_plan
+from qrypta.patch.generator import generate_patches
 
 __all__ = [
     "scan_repository",
@@ -16,5 +17,7 @@ __all__ = [
     "calculate_risk",
     "map_to_pqc",
     "create_migration_plan",
+    "generate_patches",
 ]
+
 

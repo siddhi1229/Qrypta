@@ -9,6 +9,7 @@ from qrypta.pqc.mapper import map_to_pqc
 from qrypta.migration.planner import create_migration_plan
 from qrypta.patch.generator import generate_patches
 from qrypta.validate.validator import validate_patches
+from qrypta.pipeline import run_pipeline
 
 __all__ = [
     "scan_repository",
@@ -20,7 +21,9 @@ __all__ = [
     "create_migration_plan",
     "generate_patches",
     "validate_patches",
+    "run_pipeline",
 ]
+
 
 
 

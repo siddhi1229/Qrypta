@@ -249,6 +249,7 @@ def _process_finding_in_sandbox(
 def generate_patches(
     repository_path: Union[str, Path],
     findings: Sequence[Union[Dict[str, Any], Any]],
+    sandbox_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
     """
     Generate proposed source-code changes from Migration Plan findings in a temporary sandbox.
@@ -256,6 +257,7 @@ def generate_patches(
     Args:
         repository_path: Path to the root of the original repository.
         findings: Sequence of finding dictionaries containing migration plan metadata.
+        sandbox_path: Optional pre-created sandbox path. If None, a temporary directory is created.
 
     Returns:
         {
@@ -267,13 +269,9 @@ def generate_patches(
     """
     repo_root = Path(repository_path).resolve()
     patches: List[Dict[str, Any]] = []
-    recorded_sandbox_path = ""
     changed_files = set()
 
-    with tempfile.TemporaryDirectory() as sandbox_dir:
-        sandbox_root = Path(sandbox_dir)
-        recorded_sandbox_path = str(sandbox_root)
-
+    def _execute_in_sandbox(sandbox_root: Path) -> Dict[str, Any]:
         # Copy original repository content to sandbox (ignoring unwanted directories)
         if repo_root.exists() and repo_root.is_dir():
             try:
@@ -300,16 +298,34 @@ def generate_patches(
             if patch_result["status"] == STATUS_PATCHED:
                 changed_files.add(patch_result["file"])
 
-    # Deterministically sort patches by file, status
-    patches.sort(key=lambda p: (
-        str(p.get("file", "")),
-        int(p.get("changes", [{}])[0].get("line_before", 0) if p.get("changes") else 0),
-        str(p.get("status", "")),
-    ))
+        # Sync final unified diff for patched files
+        for p in patches:
+            if p["status"] == STATUS_PATCHED:
+                orig_file = repo_root / p["file"]
+                sb_file = sandbox_root / p["file"]
+                if orig_file.exists() and sb_file.exists():
+                    orig_content = orig_file.read_text(encoding="utf-8", errors="replace")
+                    sb_content = sb_file.read_text(encoding="utf-8", errors="replace")
+                    p["diff"] = _generate_unified_diff(orig_content, sb_content)
 
-    return {
-        "sandbox_path": recorded_sandbox_path,
-        "original_repository_modified": False,
-        "files_changed": len(changed_files),
-        "patches": patches,
-    }
+        # Deterministically sort patches by file, status
+
+        patches.sort(key=lambda p: (
+            str(p.get("file", "")),
+            int(p.get("changes", [{}])[0].get("line_before", 0) if p.get("changes") else 0),
+            str(p.get("status", "")),
+        ))
+
+        return {
+            "sandbox_path": str(sandbox_root),
+            "original_repository_modified": False,
+            "files_changed": len(changed_files),
+            "patches": patches,
+        }
+
+    if sandbox_path is not None:
+        return _execute_in_sandbox(Path(sandbox_path).resolve())
+    else:
+        with tempfile.TemporaryDirectory() as sandbox_dir:
+            return _execute_in_sandbox(Path(sandbox_dir).resolve())
+

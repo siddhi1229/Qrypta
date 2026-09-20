@@ -269,6 +269,34 @@ class TestContextAnalysis(unittest.TestCase):
             self.assertGreaterEqual(r["context_confidence"], 0.0)
             self.assertLessEqual(r["context_confidence"], 1.0)
 
+    def test_12_rsa_key_generation_unknown_context(self):
+        """12. RSA key generation alone is classified as unknown context, while actual encryption is classified as encryption."""
+        keygen_finding = Finding(
+            algorithm="RSA",
+            variant="2048-bit",
+            primitive="asymmetric_encryption",
+            usage="key_generation",
+            file="auth.py",
+            line=59,
+            evidence="private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)",
+            library="cryptography",
+            confidence=0.95,
+        )
+        encryption_finding = Finding(
+            algorithm="RSA",
+            variant="2048-bit",
+            primitive="asymmetric_encryption",
+            usage="encryption",
+            file="crypto.py",
+            line=80,
+            evidence="ciphertext = public_key.encrypt(data, padding.OAEP(...))",
+            library="cryptography",
+            confidence=0.95,
+        )
+        results = analyze_context([keygen_finding, encryption_finding])
+        self.assertEqual(results[0]["context"], CONTEXT_UNKNOWN)
+        self.assertEqual(results[1]["context"], CONTEXT_ENCRYPTION)
+
 
 if __name__ == "__main__":
     unittest.main()

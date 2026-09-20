@@ -8,11 +8,18 @@ PRIMITIVE_ASYMMETRIC_SIGNATURE = "asymmetric_signature"
 PRIMITIVE_ASYMMETRIC_KEY_EXCHANGE = "asymmetric_key_exchange"
 PRIMITIVE_SYMMETRIC_ENCRYPTION = "symmetric_encryption"
 PRIMITIVE_HASH_FUNCTION = "hash_function"
+PRIMITIVE_PASSWORD_HASHING = "password_hashing"
 PRIMITIVE_JWT_SIGNATURE = "jwt_signature"
 PRIMITIVE_PROTOCOL = "protocol"
 
 # Algorithm definition mappings
 ALGORITHM_RULES: Dict[str, Dict[str, Any]] = {
+    # Password hashing
+    "bcrypt": {
+        "algorithm": "bcrypt",
+        "primitive": PRIMITIVE_PASSWORD_HASHING,
+        "default_usage": "authentication",
+    },
     # Asymmetric
     "RSA": {
         "algorithm": "RSA",
@@ -243,6 +250,8 @@ NAME_TO_RULE_KEY: Dict[str, str] = {
     "hs256": "HS256",
     "hs384": "HS384",
     "hs512": "HS512",
+    # Password Hashing
+    "bcrypt": "bcrypt",
 }
 
 # Directories to ignore

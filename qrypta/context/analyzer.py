@@ -53,7 +53,7 @@ RE_SIGNATURE = re.compile(
     re.IGNORECASE,
 )
 RE_ENCRYPTION = re.compile(
-    r"""\b(Cipher|createCipheriv|createDecipheriv|AES\.new|DES\.new|DES3\.new|encrypt|decrypt|AES-GCM|AES-CBC|AES-CTR|ChaCha20|TripleDES|RSA-OAEP|OAEP|public_encrypt|private_decrypt|generate_private_key|generateKeyPairSync|generateKeyPair)\b""",
+    r"""\b(Cipher|createCipheriv|createDecipheriv|AES\.new|DES\.new|DES3\.new|encrypt|decrypt|AES-GCM|AES-CBC|AES-CTR|ChaCha20|TripleDES|RSA-OAEP|OAEP|public_encrypt|private_decrypt)\b""",
     re.IGNORECASE,
 )
 RE_HASHING = re.compile(
@@ -147,8 +147,8 @@ def _classify_context(finding: Dict[str, Any]) -> Tuple[str, str, float]:
     # 8. Encryption (Symmetric / Asymmetric cipher operations)
     if (primitive == "symmetric_encryption" and usage != "import") or (
         algorithm in {"AES", "ChaCha20", "DES", "3DES"} and usage in {"encryption", "decryption", "key_generation"}
-    ) or (algorithm == "RSA" and usage in {"encryption", "key_generation"} and not RE_SIGNATURE.search(evidence)):
-        if RE_ENCRYPTION.search(evidence) or usage in {"encryption", "decryption", "key_generation"}:
+    ) or (algorithm == "RSA" and usage in {"encryption", "decryption"} and not RE_SIGNATURE.search(evidence)):
+        if RE_ENCRYPTION.search(evidence) or usage in {"encryption", "decryption"}:
             return (
                 CONTEXT_ENCRYPTION,
                 "Symmetric or asymmetric encryption/decryption cipher operation detected",

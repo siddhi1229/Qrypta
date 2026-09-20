@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>QRYPTA — Post-Quantum Cryptography Migration</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com" rel="preconnect"/>
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['"JetBrains Mono"', 'monospace'],
+            sans: ['"Space Grotesk"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              dark: '#020617',
+              navy: '#060d1f',
+              surface: 'rgba(6, 15, 34, 0.75)',
+              cyan: '#00e5ff',
+              cyanGlow: '#00f0ff',
+              blue: '#0066ff',
+              subtle: '#38bdf8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom Matrix / Stationary Binary Canvas Styling */
+    #matrix-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 1;
+      opacity: 1;
+      transition: filter 0.8s ease;
+    }
+
+    .matrix-active {
+      filter: drop-shadow(0 0 16px rgba(0, 240, 255, 0.85)) brightness(1.35);
+    }
+
+    /* Subtle glow utilities */
+    .glow-cyan {
+      box-shadow: 0 0 30px -4px rgba(0, 229, 255, 0.28), 0 0 10px rgba(0, 229, 255, 0.15);
+    }
+    .glow-cyan-sm {
+      box-shadow: 0 0 16px -2px rgba(0, 229, 255, 0.35);
+    }
+    .glow-cyan-strong {
+      box-shadow: 0 0 40px 4px rgba(0, 229, 255, 0.6);
+    }
+    .text-glow-cyan {
+      text-shadow: 0 0 12px rgba(0, 229, 255, 0.75), 0 0 25px rgba(0, 229, 255, 0.4);
+    }
+    .text-glow-danger {
+      text-shadow: 0 0 10px rgba(239, 68, 68, 0.7);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 229, 255, 0.25);
+      border-radius: 9999px;
+    }
+
+    .scanlines {
+      background: linear-gradient(
+        rgba(2, 6, 23, 0) 50%, 
+        rgba(0, 0, 0, 0.25) 50%
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+    }
+
+    /* Key Insertion Animation */
+    @keyframes keyEnter {
+      0% {
+        transform: translate(-45px, 20px) rotate(-35deg) scale(0.7);
+        opacity: 0;
+      }
+      50% {
+        transform: translate(-10px, 0px) rotate(0deg) scale(1);
+        opacity: 1;
+      }
+      75% {
+        transform: translate(0px, 0px) rotate(90deg) scale(1);
+      }
+      100% {
+        transform: translate(0px, 0px) rotate(90deg) scale(0.9);
+        opacity: 0;
+      }
+    }
+
+    .key-animating {
+      animation: keyEnter 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* Shackle unlocking animation */
+    @keyframes shackleUnlock {
+      0% {
+        transform: translateY(0);
+      }
+      40% {
+        transform: translateY(0);
+      }
+      70% {
+        transform: translateY(-8px);
+      }
+      100% {
+        transform: translateY(-11px) rotate(-14deg);
+        transform-origin: left bottom;
+      }
+    }
+
+    .shackle-unlocked {
+      animation: shackleUnlock 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    /* Pulse radar effect */
+    @keyframes radarPulse {
+      0% {
+        transform: scale(0.95);
+        opacity: 0.8;
+      }
+      100% {
+        transform: scale(1.6);
+        opacity: 0;
+      }
+    }
+
+    .radar-ring {
+      animation: radarPulse 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+    }
+
+    /* Responsive 4-Column Findings Grid with Expanded Lateral and Vertical Spacing */
+    #findings-container {
+      display: grid !important;
+      grid-template-columns: 1fr;
+      row-gap: 2rem;
+      column-gap: 1.75rem;
+      gap: 2rem 1.75rem;
+      width: 100%;
+      align-items: stretch;
+    }
+
+    @media (min-width: 640px) {
+      #findings-container {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        row-gap: 2.25rem;
+        column-gap: 1.75rem;
+        gap: 2.25rem 1.75rem;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      #findings-container {
+        grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+        row-gap: 2.5rem;
+        column-gap: 1.85rem;
+        gap: 2.5rem 1.85rem;
+      }
+    }
+
+    .finding-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100%;
+      min-height: 100%;
+      width: 100%;
+      background: rgba(5, 12, 31, 0.75) !important;
+      backdrop-filter: blur(12px) !important;
+      -webkit-backdrop-filter: blur(12px) !important;
+      border: 1px solid rgba(6, 182, 212, 0.3) !important;
+    }
+  </style>
+</head>
+<body class="bg-[#020512] text-slate-200 font-sans min-h-screen flex flex-col antialiased selection:bg-cyan-500/30 selection:text-cyan-200 relative overflow-x-hidden">
+  <!-- Hidden Directory/Folder Input for Repository Selection -->
+  <input type="file" id="folder-input" webkitdirectory directory multiple class="hidden" onchange="handleFolderSelect(event)" />
+
+  <!-- Background Stationary Binary Columns Canvas -->
+  <canvas id="matrix-canvas"></canvas>
+  <div class="fixed top-[-10%] left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[140px] pointer-events-none z-0"></div>
+  <div class="fixed bottom-[-10%] right-[-10%] w-[450px] h-[450px] bg-blue-600/15 rounded-full blur-[130px] pointer-events-none z-0"></div>
+  <div class="fixed top-1/3 left-[-15%] w-[350px] h-[350px] bg-blue-900/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
+  <div class="scanlines fixed inset-0 z-[2] opacity-30"></div>
+
+  <!-- Main Container -->
+  <div class="relative z-10 flex flex-col flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+    <!-- Top Header -->
+    <header class="flex items-center justify-between pb-3 border-b border-cyan-500/20 backdrop-blur-md bg-[#040a1b]/60 px-3.5 py-2.5 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.4)]">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400/25 via-blue-600/35 to-black border border-cyan-400/50 flex items-center justify-center relative shadow-[0_0_15px_rgba(0,229,255,0.3)]">
+          <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+          </svg>
+          <div class="absolute inset-0 border border-cyan-400/30 rounded-lg animate-ping opacity-25"></div>
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <h1 class="text-base font-bold tracking-[0.2em] text-white font-mono leading-none drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]">QRYPTA</h1>
+            <span class="text-[9px] font-mono font-semibold px-1 py-0.5 rounded bg-cyan-950/90 text-cyan-400 border border-cyan-500/40 uppercase tracking-wider">v1.0</span>
+          </div>
+          <p class="text-[10px] text-slate-300 tracking-tight mt-0.5 font-medium">Post-Quantum Cryptography Migration</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/90 border border-cyan-500/30 backdrop-blur-md shadow-sm">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" id="status-pulse-dot"></span>
+        <span class="text-[9px] font-mono font-semibold tracking-wider text-slate-200 uppercase" id="status-text">SYSTEM READY</span>
+      </div>
+    </header>
+
+    <!-- Content Workspace -->
+    <main class="flex-1 flex flex-col justify-center py-5">
+      <!-- ============================================== -->
+      <!-- STATE 1: REPOSITORY LOCKED (INITIAL STATE)     -->
+      <!-- ============================================== -->
+      <div class="transition-all duration-500 flex flex-col items-center max-w-[480px] w-full mx-auto" id="locked-state">
+        <div class="w-full relative rounded-2xl p-6 sm:p-7 border border-cyan-500/30 bg-[#050c1f]/75 backdrop-blur-md glow-cyan text-center flex flex-col items-center overflow-hidden">
+          <div class="absolute top-2.5 left-2.5 w-3.5 h-3.5 border-t-2 border-l-2 border-cyan-400/60"></div>
+          <div class="absolute top-2.5 right-2.5 w-3.5 h-3.5 border-t-2 border-r-2 border-cyan-400/60"></div>
+          <div class="absolute bottom-2.5 left-2.5 w-3.5 h-3.5 border-b-2 border-l-2 border-cyan-400/60"></div>
+          <div class="absolute bottom-2.5 right-2.5 w-3.5 h-3.5 border-b-2 border-r-2 border-cyan-400/60"></div>
+
+          <!-- Target Repository Pill -->
+          <div class="mb-5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-950/80 border border-cyan-500/40 text-slate-300 text-xs font-mono shadow-[0_0_12px_rgba(0,229,255,0.15)] cursor-pointer hover:border-cyan-400 transition-colors" id="repo-pill" onclick="triggerFolderPicker()">
+            <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+              <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+            </svg>
+            <span class="text-cyan-200 font-medium" id="repo-pill-name">No repository selected</span>
+          </div>
+
+          <!-- Cyber Lock Visual -->
+          <div class="relative my-4 flex items-center justify-center w-48 h-48">
+            <div class="absolute inset-4 rounded-full bg-gradient-to-b from-cyan-500/25 via-blue-600/20 to-transparent blur-lg pointer-events-none"></div>
+            <div class="absolute inset-0 rounded-full border border-cyan-400/35 radar-ring pointer-events-none"></div>
+            <div class="absolute inset-3 rounded-full border border-blue-500/30 pointer-events-none"></div>
+            <svg class="absolute inset-0 w-full h-full pointer-events-none text-cyan-400/40 animate-spin" fill="none" style="animation-duration: 35s;" viewbox="0 0 192 192">
+              <circle cx="96" cy="96" opacity="0.6" r="86" stroke="currentColor" stroke-dasharray="3 7" stroke-width="1"></circle>
+              <circle cx="96" cy="96" opacity="0.7" r="76" stroke="currentColor" stroke-dasharray="14 28" stroke-width="1.5"></circle>
+              <path d="M96 6 V14 M96 178 V186 M6 96 H14 M178 96 H186" opacity="0.9" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+              <path d="M32 32 L38 38 M154 154 L160 160 M160 32 L154 38 M32 160 L38 154" opacity="0.6" stroke="currentColor" stroke-width="1.5"></path>
+            </svg>
+            <svg class="absolute inset-2 w-[176px] h-[176px] pointer-events-none text-blue-400/30 animate-spin" fill="none" style="animation-duration: 22s; animation-direction: reverse;" viewbox="0 0 176 176">
+              <circle cx="88" cy="88" opacity="0.5" r="68" stroke="currentColor" stroke-dasharray="6 12" stroke-width="1"></circle>
+              <polygon opacity="0.4" points="88,14 152,51 152,125 88,162 24,125 24,51" stroke="currentColor" stroke-dasharray="4 8" stroke-width="0.8"></polygon>
+            </svg>
+
+            <!-- Animated key element -->
+            <div class="hidden absolute z-30 pointer-events-none drop-shadow-[0_0_15px_#00e5ff]" id="animated-key">
+              <svg class="w-12 h-12 text-cyan-300" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+                <circle cx="7.5" cy="15.5" r="5.5"></circle>
+                <path d="m21 2-9.6 9.6"></path>
+                <path d="m15.5 7.5 3 3"></path>
+                <path d="m18 5 2 2"></path>
+              </svg>
+            </div>
+
+            <!-- Cybernetic Lock Body -->
+            <div class="relative z-10 w-28 h-28 rounded-2xl bg-gradient-to-b from-[#0b1f45] via-[#05132d] to-[#040a1c] border border-cyan-400/50 flex flex-col items-center justify-center shadow-[inset_0_1px_2px_rgba(255,255,255,0.25),0_0_25px_rgba(0,229,255,0.35)]">
+              <div class="absolute top-1.5 left-2 right-2 flex items-center justify-between px-1 pointer-events-none opacity-80">
+                <div class="flex items-center gap-1">
+                  <span class="w-1 h-1 rounded-full bg-cyan-400 shadow-[0_0_4px_#00e5ff]"></span>
+                  <span class="w-1 h-1 rounded-full bg-cyan-400/40"></span>
+                </div>
+                <span class="text-[7px] font-mono tracking-widest text-cyan-400/80 uppercase font-semibold">FIPS-204</span>
+                <div class="flex items-center gap-1">
+                  <span class="w-1 h-1 rounded-full bg-cyan-400/40"></span>
+                  <span class="w-1 h-1 rounded-full bg-emerald-400 shadow-[0_0_4px_#34d399]"></span>
+                </div>
+              </div>
+              <svg class="w-14 h-14 text-cyan-400 transition-transform duration-500 ease-out mb-[-8px] z-10 drop-shadow-[0_0_8px_rgba(0,229,255,0.5)]" fill="none" id="shackle-svg" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24">
+                <rect class="opacity-0" height="11" rx="2" ry="2" width="18" x="3" y="11"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" id="shackle-path"></path>
+              </svg>
+              <div class="w-16 h-12 rounded-xl bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950 border border-cyan-400/50 flex items-center justify-center relative overflow-hidden shadow-[inset_0_0_10px_rgba(0,229,255,0.15)]">
+                <div class="absolute top-1 left-1 w-1.5 h-1.5 border-t border-l border-cyan-400/70"></div>
+                <div class="absolute top-1 right-1 w-1.5 h-1.5 border-t border-r border-cyan-400/70"></div>
+                <div class="absolute bottom-1 left-1 w-1.5 h-1.5 border-b border-l border-cyan-400/70"></div>
+                <div class="absolute bottom-1 right-1 w-1.5 h-1.5 border-b border-r border-cyan-400/70"></div>
+                <div class="flex flex-col items-center z-10">
+                  <div class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#00e5ff]"></div>
+                  <div class="w-1 h-3.5 bg-cyan-400 mt-[-1px] rounded-b shadow-[0_0_10px_#00e5ff]"></div>
+                </div>
+                <div class="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/25 to-transparent pointer-events-none"></div>
+              </div>
+              <div class="absolute bottom-1.5 flex items-center gap-1 opacity-60 pointer-events-none">
+                <span class="w-3 h-0.5 bg-cyan-400/60 rounded-full"></span>
+                <span class="w-1.5 h-0.5 bg-cyan-400 rounded-full"></span>
+                <span class="w-4 h-0.5 bg-cyan-400/40 rounded-full"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Primary Text -->
+          <h2 class="text-xl font-bold text-white tracking-wide mt-2 font-mono text-glow-cyan" id="locked-title">Cryptographic Analysis Pending</h2>
+          <p class="text-xs text-slate-300 max-w-[280px] mt-2 leading-relaxed" id="locked-desc">
+            Select a repository to analyze its cryptographic dependencies against quantum vulnerability thresholds.
+          </p>
+
+          <!-- Security spec chips -->
+          <div class="flex flex-wrap items-center justify-center gap-2 mt-4 text-[10px] font-mono text-slate-300">
+            <span class="px-2.5 py-1 rounded bg-slate-950/80 border border-cyan-500/25 shadow-sm">SHA-256 Checksum: Verified</span>
+            <span class="px-2.5 py-1 rounded bg-slate-950/80 border border-cyan-500/25 shadow-sm">FIPS 203/204 Engine</span>
+          </div>
+
+          <!-- SCAN / START SCAN BUTTON -->
+          <div class="w-full mt-6">
+            <button class="w-full group relative inline-flex items-center justify-center px-6 py-3.5 text-xs font-mono font-bold uppercase tracking-[0.2em] text-black bg-cyan-400 hover:bg-cyan-300 rounded-xl transition-all duration-200 shadow-[0_0_25px_rgba(0,229,255,0.5)] hover:shadow-[0_0_35px_rgba(0,229,255,0.85)] active:scale-[0.98]" id="scan-btn" onclick="handleScanButtonClick()">
+              <span class="absolute inset-0 w-full h-full rounded-xl bg-white/25 opacity-0 group-hover:opacity-100 transition-opacity"></span>
+              <span class="flex items-center gap-2 z-10" id="scan-btn-text">
+                <svg class="w-4 h-4 text-black" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24">
+                  <path d="M2 12h20M12 2v20"></path>
+                  <circle cx="12" cy="12" r="9"></circle>
+                </svg>
+                SCAN REPOSITORY
+              </span>
+            </button>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-3 font-mono" id="target-subtext">
+            No repository selected
+          </p>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- SCANNING INTERMEDIATE STATE                    -->
+      <!-- ============================================== -->
+      <div class="hidden transition-all duration-300 flex flex-col items-center justify-center text-center py-10 px-6 rounded-2xl bg-[#050c1f]/80 backdrop-blur-md border border-cyan-400/40 glow-cyan max-w-[480px] w-full mx-auto" id="scanning-indicator">
+        <div class="relative w-20 h-20 mb-6">
+          <div class="absolute inset-0 rounded-full border-2 border-cyan-400/30 border-t-cyan-400 animate-spin"></div>
+          <div class="absolute inset-2 rounded-full border-2 border-blue-500/30 border-b-blue-400 animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <svg class="w-7 h-7 text-cyan-400 animate-pulse drop-shadow-[0_0_8px_#00e5ff]" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 font-mono text-xs mb-2">
+          <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+          <span>Scanning repository...</span>
+        </div>
+        <p class="text-[11px] font-mono text-slate-300" id="scanning-step-text">
+          Executing Qrypta 8-stage static analysis pipeline...
+        </p>
+        <div class="w-64 h-2 bg-slate-950 rounded-full mt-4 overflow-hidden border border-cyan-500/30 shadow-[0_0_10px_rgba(0,229,255,0.2)]">
+          <div class="h-full bg-gradient-to-r from-cyan-400 to-blue-500 w-0 transition-all duration-700 shadow-[0_0_10px_#00e5ff]" id="scan-progress-fill"></div>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- STATE 2: POST-SCAN RESULTS DASHBOARD           -->
+      <!-- ============================================== -->
+      <div class="hidden transition-all duration-500 flex flex-col gap-5 w-full" id="results-state">
+        <!-- Workflow Progression Tracker (9 Stages) -->
+        <div class="rounded-xl bg-[#050c1f]/80 border border-cyan-500/30 p-3.5 backdrop-blur-md glow-cyan-sm">
+          <div class="flex items-center justify-between mb-2.5">
+            <span class="text-[10px] font-mono text-cyan-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+              Pipeline Progression
+            </span>
+            <span class="text-[10px] font-mono text-slate-300" id="pipeline-status-badge">9 / 9 Pipeline Stages</span>
+          </div>
+          <!-- Stages Grid (9 stages including Human Approval) -->
+          <div class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-1.5 text-[9px] font-mono font-medium text-center" id="stages-grid-top">
+            <div class="p-1.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 flex flex-col items-center">
+              <span class="font-bold">✓ SCAN</span>
+              <span class="text-[7px] text-emerald-400/90" id="stage-scan-sub">Completed</span>
+            </div>
+            <div class="p-1.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 flex flex-col items-center">
+              <span class="font-bold">✓ INVENTORY</span>
+              <span class="text-[7px] text-emerald-400/90" id="stage-inventory-sub">Target</span>
+            </div>
+            <div class="p-1.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 flex flex-col items-center">
+              <span class="font-bold">✓ CONTEXT</span>
+              <span class="text-[7px] text-emerald-400/90" id="stage-context-sub">Classified</span>
+            </div>
+            <div class="p-1.5 rounded bg-rose-950/80 border border-rose-500/60 text-rose-300 flex flex-col items-center shadow-[0_0_12px_rgba(244,63,94,0.3)]">
+              <span class="font-bold">! RISK</span>
+              <span class="text-[7px] text-rose-400" id="stage-risk-sub">Evaluated</span>
+            </div>
+            <div class="p-1.5 rounded bg-cyan-950/70 border border-cyan-400/60 text-cyan-300 flex flex-col items-center shadow-[0_0_8px_rgba(0,229,255,0.25)]">
+              <span class="font-bold">→ PQC MAP</span>
+              <span class="text-[7px] text-cyan-300" id="stage-pqc-sub">Mapped</span>
+            </div>
+            <div class="p-1.5 rounded bg-amber-950/70 border border-amber-500/60 text-amber-300 flex flex-col items-center">
+              <span class="font-bold">PLAN</span>
+              <span class="text-[7px] text-amber-400/90" id="stage-plan-sub">Drafted</span>
+            </div>
+            <div class="p-1.5 rounded bg-slate-900/90 border border-slate-700/60 text-slate-300 flex flex-col items-center">
+              <span class="font-bold">PATCH</span>
+              <span class="text-[7px] text-slate-400" id="stage-patch-sub">Sandbox</span>
+            </div>
+            <div class="p-1.5 rounded bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 flex flex-col items-center">
+              <span class="font-bold">✓ VALIDATE</span>
+              <span class="text-[7px] text-emerald-400/90" id="stage-validate-sub">Passed</span>
+            </div>
+            <div class="p-1.5 rounded bg-amber-950/80 border border-amber-500/60 text-amber-300 flex flex-col items-center shadow-[0_0_10px_rgba(245,158,11,0.25)]" id="stage-approval-pill">
+              <span class="font-bold">APPROVAL</span>
+              <span class="text-[7px] text-amber-400" id="stage-approval-sub">Awaiting</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Findings Summary Header (Part 4) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-[#050c1f]/75 border border-cyan-500/30 backdrop-blur-md glow-cyan-sm">
+          <div class="flex items-center gap-3.5 flex-wrap">
+            <div>
+              <span class="text-[10px] font-mono text-cyan-400 font-bold tracking-widest uppercase">FINDINGS</span>
+              <div class="text-sm sm:text-base font-bold font-mono text-white" id="summary-total-findings">0 findings</div>
+            </div>
+            <div class="h-8 w-px bg-slate-800 hidden sm:block"></div>
+            <div class="flex items-center gap-2 flex-wrap font-mono text-xs font-semibold">
+              <span class="px-2.5 py-1 rounded-md bg-red-950/70 border border-red-500/50 text-red-400" id="summary-critical-count">CRITICAL 0</span>
+              <span class="px-2.5 py-1 rounded-md bg-orange-950/70 border border-orange-500/50 text-orange-400" id="summary-high-count">HIGH 0</span>
+              <span class="px-2.5 py-1 rounded-md bg-amber-950/70 border border-amber-500/50 text-amber-400" id="summary-medium-count">MEDIUM 0</span>
+              <span class="px-2.5 py-1 rounded-md bg-emerald-950/70 border border-emerald-500/50 text-emerald-400" id="summary-low-count">LOW 0</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <button id="btn-open-review" class="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-bold font-mono text-xs tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(0,229,255,0.35)] flex items-center gap-1.5" onclick="openMigrationReview()">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              REVIEW MIGRATION
+            </button>
+          </div>
+        </div>
+
+        <!-- Dynamic Findings Container (Responsive 4-column grid) -->
+        <div id="findings-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 w-full items-stretch">
+          <!-- Populated dynamically by renderPipelineResults() -->
+        </div>
+
+        <!-- Reset / Rescan Link -->
+        <div class="text-center mt-3 mb-4 flex items-center justify-center gap-4">
+          <button class="text-[10px] font-mono text-slate-400 hover:text-cyan-300 transition-colors uppercase tracking-wider inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900/60 border border-slate-800 hover:border-cyan-500/40" onclick="resetToLocked()">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M1 4v6h6M23 20v-6h-6"></path>
+              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path>
+            </svg>
+            SELECT ANOTHER REPOSITORY
+          </button>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- STATE 3: MIGRATION REVIEW & HUMAN APPROVAL     -->
+      <!-- ============================================== -->
+      <div class="hidden transition-all duration-500 flex flex-col gap-5 w-full" id="review-state">
+        <!-- Review Header Banner -->
+        <div class="rounded-xl bg-[#050c1f]/85 border border-cyan-500/40 p-4 backdrop-blur-md glow-cyan-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <h2 class="text-base sm:text-lg font-bold font-mono text-white tracking-wide">MIGRATION REVIEW &amp; HUMAN APPROVAL</h2>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 uppercase tracking-wider font-bold" id="review-status-badge">AWAITING HUMAN APPROVAL</span>
+            </div>
+            <p class="text-xs text-slate-300 font-mono mt-1">Review proposed cryptographic replacements, automated patch diffs, and manual review items.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-mono px-3 py-1.5 rounded-lg bg-slate-900 border border-emerald-500/40 text-emerald-400 font-bold flex items-center gap-1.5 shadow-sm">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
+              ORIGINAL REPOSITORY: UNMODIFIED
+            </span>
+          </div>
+        </div>
+
+        <!-- Summary Metric Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
+          <div class="p-3 rounded-xl bg-[#050c1f]/75 border border-cyan-500/30 backdrop-blur-md">
+            <div class="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">PROPOSED CHANGES</div>
+            <div class="text-lg font-bold text-white mt-1" id="review-proposed-count">0</div>
+          </div>
+          <div class="p-3 rounded-xl bg-[#050c1f]/75 border border-cyan-500/30 backdrop-blur-md">
+            <div class="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">AUTOMATIC PATCHES</div>
+            <div class="text-lg font-bold text-white mt-1" id="review-auto-patches-count">0</div>
+          </div>
+          <div class="p-3 rounded-xl bg-[#050c1f]/75 border border-cyan-500/30 backdrop-blur-md">
+            <div class="text-[10px] text-amber-400 uppercase tracking-wider font-semibold">MANUAL REVIEW ITEMS</div>
+            <div class="text-lg font-bold text-amber-300 mt-1" id="review-manual-items-count">0</div>
+          </div>
+          <div class="p-3 rounded-xl bg-[#050c1f]/75 border border-cyan-500/30 backdrop-blur-md">
+            <div class="text-[10px] text-slate-300 uppercase tracking-wider font-semibold">NO-CHANGE FINDINGS</div>
+            <div class="text-lg font-bold text-slate-200 mt-1" id="review-no-change-count">0</div>
+          </div>
+          <div class="p-3 rounded-xl bg-[#050c1f]/75 border border-cyan-500/30 backdrop-blur-md">
+            <div class="text-[10px] text-emerald-400 uppercase tracking-wider font-semibold">VALIDATION STATUS</div>
+            <div class="text-lg font-bold text-emerald-400 mt-1 flex items-center gap-1.5" id="review-val-status">
+              PASSED
+            </div>
+          </div>
+        </div>
+
+        <!-- Review Table / Items List -->
+        <div class="rounded-xl bg-[#050c1f]/80 border border-slate-800 overflow-hidden backdrop-blur-md shadow-lg">
+          <div class="px-4 py-3 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
+            <span class="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider">Migration Finding Breakdown</span>
+            <button id="btn-toggle-diff" class="text-xs font-mono text-cyan-400 hover:text-cyan-300 px-3 py-1 rounded bg-cyan-950/60 border border-cyan-500/40 flex items-center gap-1 transition-colors" onclick="toggleDiffViewer()">
+              <span id="btn-toggle-diff-text">[ VIEW DIFF ]</span>
+            </button>
+          </div>
+
+          <!-- Diff Viewer Panel (Collapsible) -->
+          <div id="diff-viewer-panel" class="hidden p-4 bg-[#020512] border-b border-slate-800 font-mono text-xs overflow-x-auto max-h-96">
+            <div class="text-slate-400 text-xs mb-2 font-bold flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#00e5ff]"></span>
+              AUTOMATICALLY GENERATED SANDBOX UNIFIED DIFF
+            </div>
+            <pre class="text-slate-300 whitespace-pre-wrap leading-relaxed" id="diff-content">No automatic source diffs generated. All items require manual review.</pre>
+          </div>
+
+          <!-- Table Container -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono">
+              <thead class="bg-slate-950/90 text-slate-400 text-[10px] uppercase border-b border-slate-800">
+                <tr>
+                  <th class="px-3.5 py-2.5">Finding</th>
+                  <th class="px-3.5 py-2.5">File</th>
+                  <th class="px-3.5 py-2.5">Current Algorithm</th>
+                  <th class="px-3.5 py-2.5">Recommended PQC</th>
+                  <th class="px-3.5 py-2.5">Patch Status</th>
+                  <th class="px-3.5 py-2.5">Validation</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/80 text-slate-300" id="review-table-body">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Post-Action Feedback Box (Shown after Approval or Rejection) -->
+        <div id="approval-result-box" class="hidden rounded-xl p-4 sm:p-5 border backdrop-blur-md">
+          <div class="flex items-center gap-2.5 mb-2">
+            <div id="approval-result-icon" class="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs">✓</div>
+            <h3 class="text-base font-bold font-mono text-white" id="approval-result-title">MIGRATION APPROVED</h3>
+          </div>
+          <p class="text-xs font-mono text-slate-300 mb-3" id="approval-result-desc">Patch applied to Qrypta sandbox. Post-approval validation passed.</p>
+          <div class="flex items-center gap-3 text-xs font-mono">
+            <span class="text-emerald-400 font-bold">ORIGINAL REPOSITORY: UNMODIFIED</span>
+          </div>
+        </div>
+
+        <!-- Approval Action Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-2" id="approval-action-bar">
+          <button class="px-4 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 font-mono text-xs uppercase tracking-wider transition-colors" onclick="backToFindings()">
+            ← Back to Findings
+          </button>
+          <div class="flex items-center gap-3">
+            <button id="btn-reject-migration" class="px-5 py-2.5 rounded-lg bg-rose-950/80 border border-rose-500/70 hover:bg-rose-900/90 text-rose-300 hover:text-white font-mono font-bold text-xs uppercase tracking-wider transition-all shadow-[0_0_12px_rgba(244,63,94,0.25)] flex items-center gap-2" onclick="handleRejectMigration()">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              REJECT MIGRATION
+            </button>
+            <button id="btn-approve-migration" class="px-6 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-black font-mono font-extrabold text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(52,211,153,0.4)] flex items-center gap-2" onclick="handleApproveMigration()">
+              <svg class="w-4 h-4 text-black" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              APPROVE MIGRATION
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- App Bottom Bar -->
+    <footer class="pt-2.5 pb-1 border-t border-cyan-500/20 backdrop-blur-sm bg-[#040a1b]/40 px-3.5 rounded-xl text-[10px] font-mono text-slate-400 flex items-center justify-between">
+      <span class="flex items-center gap-1.5 text-cyan-300">
+        <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_#00e5ff]"></span>
+        NIST PQC STANDARDS (FIPS 203/204/205)
+      </span>
+      <span class="text-slate-400 font-medium">ZERO_TRUST_VERIFIED</span>
+    </footer>
+  </div>
+
+  <!-- Interactive Logic & Stationary Binary Matrix Engine -->
+  <script>
+    // State management
+    let selectedFiles = [];
+    let selectedFolderName = "";
+    let lastPipelineResult = null;
+
+    // Trigger local folder picker
+    function triggerFolderPicker() {
+      const folderInput = document.getElementById('folder-input');
+      folderInput.click();
+    }
+
+    // Handle folder selection from input
+    function handleFolderSelect(event) {
+      const files = Array.from(event.target.files);
+      if (files && files.length > 0) {
+        selectedFiles = files;
+        // Extract folder name from webkitRelativePath
+        const firstPath = files[0].webkitRelativePath || files[0].name;
+        const parts = firstPath.split('/');
+        selectedFolderName = parts.length > 1 ? parts[0] : (files[0].name || "selected_repository");
+
+        // Update UI to show selected repository
+        const repoPillName = document.getElementById('repo-pill-name');
+        const targetSubtext = document.getElementById('target-subtext');
+        const scanBtnText = document.getElementById('scan-btn-text');
+
+        repoPillName.textContent = `Repository: ${selectedFolderName}`;
+        targetSubtext.textContent = `Repository: ${selectedFolderName}`;
+
+        // Update button text to START SCAN
+        scanBtnText.innerHTML = `
+          <svg class="w-4 h-4 text-black" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          START SCAN
+        `;
+      }
+    }
+
+    // Parse URL parameters for repo or demo target
+    const urlParams = new URLSearchParams(window.location.search);
+    const repoParam = urlParams.get('repo') || urlParams.get('repository') || urlParams.get('path') || (urlParams.get('demo') ? 'C:/Users/Siddhi/Desktop/secure-demo-app' : null);
+
+    window.addEventListener('DOMContentLoaded', () => {
+      if (repoParam) {
+        selectedFolderName = repoParam.split(/[\/\\]/).filter(Boolean).pop() || repoParam;
+        const repoPillName = document.getElementById('repo-pill-name');
+        const targetSubtext = document.getElementById('target-subtext');
+        const scanBtnText = document.getElementById('scan-btn-text');
+
+        if (repoPillName) repoPillName.textContent = `Repository: ${selectedFolderName}`;
+        if (targetSubtext) targetSubtext.textContent = `Repository: ${selectedFolderName}`;
+
+        if (scanBtnText) {
+          scanBtnText.innerHTML = `
+            <svg class="w-4 h-4 text-black" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewBox="0 0 24 24">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            START SCAN
+          `;
+        }
+
+        if (urlParams.get('auto') === '1' || urlParams.get('scan') === '1') {
+          setTimeout(startScanInteraction, 300);
+        }
+      }
+    });
+
+    // Handle button click (either open picker or execute scan)
+    function handleScanButtonClick() {
+      if ((!selectedFiles || selectedFiles.length === 0) && !repoParam) {
+        triggerFolderPicker();
+      } else {
+        startScanInteraction();
+      }
+    }
+
+    // ==========================================
+    // STATIONARY BINARY MATRIX BACKGROUND
+    // ==========================================
+    const canvas = document.getElementById('matrix-canvas');
+    const ctx = canvas.getContext('2d');
+
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    const fontSize = 14;
+    const colSpacing = 19;
+    const rowSpacing = 18;
+
+    let cols = Math.floor(width / colSpacing);
+    let rows = Math.floor(height / rowSpacing);
+
+    let grid = [];
+    let pulseBoost = false;
+
+    function initStationaryGrid() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+      cols = Math.floor(width / colSpacing) + 2;
+      rows = Math.floor(height / rowSpacing) + 2;
+      grid = [];
+
+      for (let c = 0; c < cols; c++) {
+        grid[c] = [];
+        for (let r = 0; r < rows; r++) {
+          grid[c][r] = {
+            char: Math.random() > 0.5 ? '1' : '0',
+            pulsePhase: 'idle',
+            pulse: 0,
+            pulseInSpeed: 0.006 + Math.random() * 0.009,
+            pulseOutSpeed: 0.0045 + Math.random() * 0.007,
+            pulseColorType: Math.random(),
+            baseAlpha: 0.16 + Math.random() * 0.12,
+            nextTwinkle: Math.floor(180 + Math.random() * 600)
+          };
+        }
+      }
+    }
+    initStationaryGrid();
+
+    window.addEventListener('resize', () => {
+      initStationaryGrid();
+    });
+
+    function renderStationaryBinary() {
+      ctx.fillStyle = '#020512';
+      ctx.fillRect(0, 0, width, height);
+      ctx.font = `600 ${fontSize}px "JetBrains Mono", monospace`;
+
+      const boostFactor = pulseBoost ? 2.2 : 1.0;
+
+      for (let c = 0; c < cols; c++) {
+        const x = c * colSpacing;
+        for (let r = 0; r < rows; r++) {
+          const cell = grid[c][r];
+          const y = r * rowSpacing;
+
+          if (cell.pulsePhase === 'idle') {
+            cell.nextTwinkle -= 1 * boostFactor;
+            if (cell.nextTwinkle <= 0) {
+              cell.pulsePhase = 'in';
+              cell.pulse = 0.01;
+              cell.pulseInSpeed = (0.007 + Math.random() * 0.010) * (pulseBoost ? 1.5 : 1.0);
+              cell.pulseOutSpeed = (0.005 + Math.random() * 0.008) * (pulseBoost ? 1.3 : 1.0);
+              cell.pulseColorType = Math.random();
+              if (Math.random() > 0.45) {
+                cell.char = cell.char === '1' ? '0' : '1';
+              }
+            }
+          } else if (cell.pulsePhase === 'in') {
+            cell.pulse += cell.pulseInSpeed;
+            if (cell.pulse >= 1.0) {
+              cell.pulse = 1.0;
+              cell.pulsePhase = 'out';
+            }
+          } else if (cell.pulsePhase === 'out') {
+            cell.pulse -= cell.pulseOutSpeed;
+            if (cell.pulse <= 0) {
+              cell.pulse = 0;
+              cell.pulsePhase = 'idle';
+              cell.nextTwinkle = Math.floor((260 + Math.random() * 750) / boostFactor);
+            }
+          }
+
+          if (cell.pulse > 0) {
+            const easeVal = Math.sin(cell.pulse * Math.PI * 0.5);
+            const p = easeVal;
+
+            if (cell.pulseColorType > 0.50) {
+              ctx.fillStyle = `rgba(0, 240, 255, ${Math.min(1, 0.35 + p * 0.65)})`;
+              ctx.shadowColor = '#00f0ff';
+              ctx.shadowBlur = p > 0.25 ? 12 * p : 3;
+            } else if (cell.pulseColorType > 0.20) {
+              ctx.fillStyle = `rgba(56, 189, 248, ${Math.min(1, 0.32 + p * 0.68)})`;
+              ctx.shadowColor = '#38bdf8';
+              ctx.shadowBlur = p > 0.25 ? 10 * p : 2.5;
+            } else {
+              ctx.fillStyle = `rgba(96, 165, 250, ${Math.min(1, 0.28 + p * 0.7)})`;
+              ctx.shadowColor = '#3b82f6';
+              ctx.shadowBlur = p > 0.25 ? 8 * p : 2;
+            }
+          } else {
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+            if (cell.baseAlpha > 0.20) {
+              ctx.fillStyle = `rgba(32, 85, 175, ${cell.baseAlpha})`;
+            } else {
+              ctx.fillStyle = `rgba(22, 58, 125, ${cell.baseAlpha})`;
+            }
+          }
+
+          ctx.fillText(cell.char, x, y);
+        }
+      }
+
+      requestAnimationFrame(renderStationaryBinary);
+    }
+    requestAnimationFrame(renderStationaryBinary);
+
+    // ==========================================
+    // SCANNING, API CALL & TRANSITION LOGIC
+    // ==========================================
+    async function startScanInteraction() {
+      const scanBtn = document.getElementById('scan-btn');
+      const lockedState = document.getElementById('locked-state');
+      const scanningIndicator = document.getElementById('scanning-indicator');
+      const resultsState = document.getElementById('results-state');
+      const animatedKey = document.getElementById('animated-key');
+      const shacklePath = document.getElementById('shackle-path');
+      const statusText = document.getElementById('status-text');
+      const statusDot = document.getElementById('status-pulse-dot');
+      const canvasEl = document.getElementById('matrix-canvas');
+
+      scanBtn.disabled = true;
+      scanBtn.classList.add('opacity-80', 'cursor-not-allowed');
+
+      // Key animation and lock visual
+      animatedKey.classList.remove('hidden');
+      animatedKey.classList.add('key-animating');
+
+      statusText.textContent = 'AUTHENTICATING';
+      statusText.className = 'text-[9px] font-mono font-semibold tracking-wider text-cyan-400 uppercase';
+      statusDot.className = 'w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00e5ff] animate-ping';
+
+      setTimeout(() => {
+        shacklePath.setAttribute('d', 'M7 11V7a5 5 0 0 1 10 0v1');
+        shacklePath.parentElement.classList.add('shackle-unlocked');
+        pulseBoost = true;
+        canvasEl.classList.add('matrix-active');
+      }, 550);
+
+      setTimeout(() => {
+        lockedState.classList.add('hidden');
+        scanningIndicator.classList.remove('hidden');
+        statusText.textContent = 'SCANNING REPO';
+
+        const fill = document.getElementById('scan-progress-fill');
+        const stepText = document.getElementById('scanning-step-text');
+        
+        setTimeout(() => {
+          fill.style.width = '35%';
+          stepText.textContent = `Analyzing ${selectedFolderName || 'repository'} AST & cryptographic symbols...`;
+        }, 200);
+
+        setTimeout(() => {
+          fill.style.width = '75%';
+          stepText.textContent = 'Mapping quantum risk & synthesizing PQC migration plans...';
+        }, 600);
+
+      }, 1100);
+
+      try {
+        // Read file contents
+        const filePayloads = [];
+        for (const file of selectedFiles) {
+          try {
+            const textContent = await file.text();
+            filePayloads.push({
+              path: file.webkitRelativePath || file.name,
+              content: textContent
+            });
+          } catch (readErr) {
+            console.warn(`Could not read file ${file.name}:`, readErr);
+          }
+        }
+
+        // Send to backend /api/scan
+        const reqBody = filePayloads.length > 0
+          ? { folder_name: selectedFolderName, files: filePayloads }
+          : { repository_path: repoParam || "C:/Users/Siddhi/Desktop/secure-demo-app" };
+
+        const response = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqBody)
+        });
+
+        const resData = await response.json();
+        const pipelineData = resData.data || resData;
+        lastPipelineResult = pipelineData;
+
+        // Animate fill to 100%
+        const fill = document.getElementById('scan-progress-fill');
+        if (fill) fill.style.width = '100%';
+
+        setTimeout(() => {
+          scanningIndicator.classList.add('hidden');
+          resultsState.classList.remove('hidden');
+
+          pulseBoost = false;
+          canvasEl.classList.remove('matrix-active');
+
+          statusText.textContent = 'MIGRATION READY';
+          statusText.className = 'text-[9px] font-mono font-semibold tracking-wider text-amber-400 uppercase';
+          statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24] animate-pulse';
+
+          renderPipelineResults(pipelineData);
+        }, 1200);
+
+      } catch (err) {
+        console.error('Scan error:', err);
+        alert(`Error executing scan: ${err.message}`);
+        resetToLocked();
+      }
+    }
+
+    // Render actual pipeline results from backend
+    function renderPipelineResults(data) {
+      const findings = data.migration || data.pqc || data.risk || data.findings || [];
+      const inventory = data.inventory || {};
+      const validation = data.validation || {};
+      const patch = data.patch || {};
+      const approval = data.approval || {};
+
+      // Calculate risk breakdown counts
+      let criticalCount = 0;
+      let highCount = 0;
+      let mediumCount = 0;
+      let lowCount = 0;
+
+      findings.forEach(f => {
+        const score = f.risk_score || 0;
+        const lvl = (f.risk_level || '').toLowerCase();
+        if (lvl === 'critical' || score >= 80) criticalCount++;
+        else if (lvl === 'high' || (score >= 60 && score < 80)) highCount++;
+        else if (lvl === 'medium' || (score >= 40 && score < 60)) mediumCount++;
+        else lowCount++;
+      });
+
+      // Update Summary Header Strip
+      const summaryTotal = document.getElementById('summary-total-findings');
+      const summaryCrit = document.getElementById('summary-critical-count');
+      const summaryHigh = document.getElementById('summary-high-count');
+      const summaryMed = document.getElementById('summary-medium-count');
+      const summaryLow = document.getElementById('summary-low-count');
+
+      if (summaryTotal) summaryTotal.textContent = `${findings.length} findings`;
+      if (summaryCrit) summaryCrit.textContent = `CRITICAL ${criticalCount}`;
+      if (summaryHigh) summaryHigh.textContent = `HIGH ${highCount}`;
+      if (summaryMed) summaryMed.textContent = `MEDIUM ${mediumCount}`;
+      if (summaryLow) summaryLow.textContent = `LOW ${lowCount}`;
+
+      // Update 9-Stage Progression Pills
+      const stageScan = document.getElementById('stage-scan-sub');
+      const stageInv = document.getElementById('stage-inventory-sub');
+      const stageCtx = document.getElementById('stage-context-sub');
+      const stageRisk = document.getElementById('stage-risk-sub');
+      const stagePqc = document.getElementById('stage-pqc-sub');
+      const stagePlan = document.getElementById('stage-plan-sub');
+      const stagePatch = document.getElementById('stage-patch-sub');
+      const stageVal = document.getElementById('stage-validate-sub');
+      const stageApprSub = document.getElementById('stage-approval-sub');
+      const stageApprPill = document.getElementById('stage-approval-pill');
+
+      if (stageScan) stageScan.textContent = `${findings.length} Found`;
+      if (stageInv) stageInv.textContent = `${inventory.summary?.unique_algorithms || findings.length} Algo`;
+      if (stageCtx) stageCtx.textContent = 'Classified';
+      if (stageRisk) stageRisk.textContent = criticalCount > 0 ? 'CRITICAL' : (highCount > 0 ? 'HIGH' : 'EVALUATED');
+      if (stagePqc) stagePqc.textContent = 'Mapped';
+      if (stagePlan) stagePlan.textContent = 'Drafted';
+      if (stagePatch) stagePatch.textContent = patch.files_changed > 0 ? `${patch.files_changed} Patched` : 'Review';
+      if (stageVal) stageVal.textContent = validation.validation_passed ? 'Passed' : 'Pending';
+
+      if (stageApprSub) {
+        if (approval.status === 'MIGRATION APPROVED') {
+          stageApprSub.textContent = 'Approved';
+          stageApprPill.className = 'p-1.5 rounded bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 flex flex-col items-center shadow-[0_0_10px_rgba(52,211,153,0.3)]';
+        } else if (approval.status === 'MIGRATION REJECTED') {
+          stageApprSub.textContent = 'Rejected';
+          stageApprPill.className = 'p-1.5 rounded bg-rose-950/80 border border-rose-500/60 text-rose-300 flex flex-col items-center shadow-[0_0_10px_rgba(244,63,94,0.3)]';
+        } else {
+          stageApprSub.textContent = 'Awaiting';
+          stageApprPill.className = 'p-1.5 rounded bg-amber-950/80 border border-amber-500/60 text-amber-300 flex flex-col items-center shadow-[0_0_10px_rgba(245,158,11,0.25)]';
+        }
+      }
+
+      const container = document.getElementById('findings-container');
+      container.innerHTML = '';
+
+      if (findings.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full rounded-2xl bg-[#050c1f]/80 border border-emerald-500/40 p-8 backdrop-blur-md text-center max-w-lg mx-auto w-full">
+            <svg class="w-12 h-12 text-emerald-400 mx-auto mb-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 class="text-base font-bold font-mono text-white">Repository Clean</h3>
+            <p class="text-xs text-slate-300 mt-1">No vulnerable cryptographic primitives detected.</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Render Clean 7-Tier Finding Cards
+      findings.forEach((f, idx) => {
+        const score = f.risk_score || 0;
+        const lvl = (f.risk_level || 'low').toLowerCase();
+
+        let riskColor = 'emerald';
+        let riskBgClass = 'bg-emerald-950/70 border-emerald-500/50 text-emerald-400';
+        let riskScoreGlow = 'text-emerald-400';
+
+        if (lvl === 'critical' || score >= 80) {
+          riskColor = 'red';
+          riskBgClass = 'bg-red-950/80 border-red-500/60 text-red-400';
+          riskScoreGlow = 'text-red-400';
+        } else if (lvl === 'high' || (score >= 60 && score < 80)) {
+          riskColor = 'orange';
+          riskBgClass = 'bg-orange-950/80 border-orange-500/60 text-orange-400';
+          riskScoreGlow = 'text-orange-400';
+        } else if (lvl === 'medium' || (score >= 40 && score < 60)) {
+          riskColor = 'amber';
+          riskBgClass = 'bg-amber-950/80 border-amber-500/60 text-amber-400';
+          riskScoreGlow = 'text-amber-400';
+        }
+
+        const pStatus = String(f.patch_status || f.status || '').toUpperCase();
+        let patchStatusText = 'MANUAL REVIEW REQUIRED';
+        let valStatusText = 'MANUAL REVIEW REQUIRED';
+
+        if (pStatus.includes('AUTOMATIC') || pStatus === 'PATCHED') {
+          patchStatusText = 'AUTOMATIC PATCH';
+          valStatusText = validation.validation_passed ? 'PASSED' : 'FAILED';
+        } else if (pStatus.includes('NO CHANGE') || pStatus === 'NO_CHANGE') {
+          patchStatusText = 'NO CHANGE REQUIRED';
+          valStatusText = 'PASSED';
+        } else {
+          const algoUpper = (f.algorithm || '').toUpperCase();
+          if (algoUpper.startsWith('AES') || algoUpper.startsWith('CHACHA') || algoUpper.startsWith('SHA-2') || algoUpper.startsWith('SHA-3') || algoUpper.startsWith('SHA-5') || algoUpper.startsWith('SHA2') || algoUpper.startsWith('SHA3') || algoUpper.startsWith('SHA5') || algoUpper.startsWith('HS') || algoUpper.startsWith('HMAC') || algoUpper.startsWith('TLS') || algoUpper.startsWith('BCRYPT')) {
+            patchStatusText = 'NO CHANGE REQUIRED';
+            valStatusText = 'PASSED';
+          } else {
+            patchStatusText = 'MANUAL REVIEW REQUIRED';
+            valStatusText = 'MANUAL REVIEW REQUIRED';
+          }
+        }
+
+        const isManual = patchStatusText === 'MANUAL REVIEW REQUIRED';
+        const isAuto = patchStatusText === 'AUTOMATIC PATCH';
+
+        const contextDisplay = f.context ? f.context.replace(/_/g, ' ') : (f.primitive ? f.primitive.replace(/_/g, ' ') : 'Usage');
+        const standardInfo = f.recommended_algorithm === 'ML-DSA' ? 'NIST FIPS 204 (Dilithium)' : (f.recommended_algorithm === 'ML-KEM' ? 'NIST FIPS 203 (Kyber)' : (f.recommended_algorithm === 'SLH-DSA' ? 'NIST FIPS 205 (SPHINCS+)' : 'Classical Security Sufficient'));
+
+        const card = document.createElement('div');
+        card.className = "finding-card rounded-2xl bg-[#050c1f]/85 border border-cyan-500/30 p-4 sm:p-5 backdrop-blur-md relative glow-cyan-sm flex flex-col justify-between h-full";
+        card.innerHTML = `
+          <!-- Tier 1: Card Header (Finding # + Risk Level & Score) -->
+          <div class="flex items-start justify-between pb-3 border-b border-slate-800/80 shrink-0 gap-2">
+            <div>
+              <span class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">
+                FINDING #${String(idx + 1).padStart(2, '0')}
+              </span>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="text-xs font-mono font-bold px-2.5 py-1 rounded-md border ${riskBgClass}">
+                ${(f.risk_level || 'EVALUATED').toUpperCase()} ${score}
+              </span>
+            </div>
+          </div>
+
+          <!-- Tier 2: Primary Finding Info (Algorithm & Context in bold white font) -->
+          <div class="mt-3">
+            <h3 class="text-base font-bold font-mono text-white flex flex-wrap items-baseline gap-1.5 break-words">
+              <span class="text-white font-extrabold tracking-wide">${escapeHtml(f.algorithm || 'Algorithm')}</span>
+              <span class="text-xs font-sans font-medium text-slate-400">/ ${escapeHtml(contextDisplay)}</span>
+            </h3>
+            <!-- Tier 3: Location (Muted monospace font) -->
+            <div class="text-xs font-mono text-slate-400 mt-1 break-all select-all flex items-center gap-1">
+              <svg class="w-3.5 h-3.5 text-slate-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <span>${escapeHtml(f.file || 'code')}:${f.line || 1}</span>
+            </div>
+          </div>
+
+          <!-- Tier 4: Evidence Snippet (Single dark code block, naturally wrapped) -->
+          <div class="mt-3">
+            <div class="text-[10px] font-mono text-slate-400 mb-1 uppercase tracking-wider font-semibold">Evidence Snippet</div>
+            <div class="rounded-lg bg-[#020512] border border-slate-800/90 p-2.5 font-mono text-xs text-cyan-300 break-words whitespace-pre-wrap leading-relaxed shadow-inner">
+              ${escapeHtml(f.evidence || f.algorithm || 'Cryptographic Symbol')}
+            </div>
+          </div>
+
+          <!-- Tier 5: Context & Risk Analysis (Grouped clean text) -->
+          <div class="mt-3 text-xs font-mono text-slate-300 leading-relaxed bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/60">
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-1">Analysis &amp; Context</div>
+            <p class="text-slate-300 break-words">${escapeHtml(f.risk_reason || f.mapping_reason || 'Identified via AST cryptographic pattern detection.')}</p>
+          </div>
+
+          <!-- Tier 6: PQC Recommendation Badge -->
+          <div class="mt-3 p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/40 min-w-0">
+            <div class="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">PQC RECOMMENDATION</div>
+            <div class="text-sm font-bold text-white mt-1 flex items-center gap-1.5 break-words">
+              <span class="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#00e5ff] shrink-0"></span>
+              <span class="break-words">${escapeHtml(f.recommended_algorithm || 'NO DIRECT PQC')}</span>
+            </div>
+            <div class="text-[11px] text-slate-300 mt-1 break-words">${escapeHtml(standardInfo)}</div>
+          </div>
+
+          <!-- Tier 7: Status Indicators (Compact bottom row) -->
+          <div class="mt-3 pt-2.5 border-t border-slate-800/80 text-[11px] font-mono space-y-1">
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-slate-400">Patch Status:</span>
+              <span class="${isAuto ? 'text-cyan-400' : (isManual ? 'text-amber-400' : 'text-slate-300')} font-semibold">${patchStatusText}</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-slate-400">Validation:</span>
+              <span class="${valStatusText === 'PASSED' ? 'text-emerald-400' : (valStatusText === 'FAILED' ? 'text-rose-400' : 'text-amber-400')} font-semibold">${valStatusText}</span>
+            </div>
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-slate-400">Original Repository:</span>
+              <span class="text-emerald-400 font-semibold">Unmodified</span>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // ==========================================
+    // HUMAN APPROVAL & REVIEW WORKFLOW
+    // ==========================================
+    async function openMigrationReview() {
+      const resultsState = document.getElementById('results-state');
+      const reviewState = document.getElementById('review-state');
+
+      if (resultsState) resultsState.classList.add('hidden');
+      if (reviewState) reviewState.classList.remove('hidden');
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      try {
+        const response = await fetch('/api/migration/review');
+        const resJson = await response.json();
+        if (resJson.success && resJson.data) {
+          renderMigrationReview(resJson.data);
+        } else if (lastPipelineResult && lastPipelineResult.approval) {
+          renderMigrationReview(lastPipelineResult.approval);
+        }
+      } catch (err) {
+        console.warn('Could not fetch review API, using memory state:', err);
+        if (lastPipelineResult && lastPipelineResult.approval) {
+          renderMigrationReview(lastPipelineResult.approval);
+        }
+      }
+    }
+
+    function backToFindings() {
+      const resultsState = document.getElementById('results-state');
+      const reviewState = document.getElementById('review-state');
+
+      if (reviewState) reviewState.classList.add('hidden');
+      if (resultsState) resultsState.classList.remove('hidden');
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function toggleDiffViewer() {
+      const panel = document.getElementById('diff-viewer-panel');
+      const btnText = document.getElementById('btn-toggle-diff-text');
+      if (!panel) return;
+
+      panel.classList.toggle('hidden');
+      if (btnText) {
+        btnText.textContent = panel.classList.contains('hidden') ? '[ VIEW DIFF ]' : '[ HIDE DIFF ]';
+      }
+    }
+
+    function renderMigrationReview(approvalData) {
+      if (!approvalData) return;
+
+      const summary = approvalData.summary || {};
+      const reviewItems = approvalData.review_items || [];
+      const diffs = approvalData.diffs || [];
+      const status = approvalData.status || 'AWAITING HUMAN APPROVAL';
+
+      // Summary Metric Cards
+      const propEl = document.getElementById('review-proposed-count');
+      const autoEl = document.getElementById('review-auto-patches-count');
+      const manEl = document.getElementById('review-manual-items-count');
+      const noChangeEl = document.getElementById('review-no-change-count');
+      const valEl = document.getElementById('review-val-status');
+      const statusBadge = document.getElementById('review-status-badge');
+
+      if (propEl) propEl.textContent = summary.proposed_changes ?? 0;
+      if (autoEl) autoEl.textContent = summary.automatic_patches ?? 0;
+      if (manEl) manEl.textContent = summary.manual_review_items ?? 0;
+      if (noChangeEl) noChangeEl.textContent = summary.no_change_findings ?? 0;
+      if (valEl) {
+        valEl.textContent = summary.validation_status || 'PASSED';
+        valEl.className = summary.validation_status === 'PASSED' ? 'text-lg font-bold text-emerald-400 mt-1' : 'text-lg font-bold text-amber-400 mt-1';
+      }
+
+      if (statusBadge) {
+        statusBadge.textContent = status;
+        if (status === 'MIGRATION APPROVED') {
+          statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase tracking-wider font-bold';
+        } else if (status === 'MIGRATION REJECTED') {
+          statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/40 uppercase tracking-wider font-bold';
+        } else {
+          statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 uppercase tracking-wider font-bold';
+        }
+      }
+
+      // Unified Diff Content
+      const diffContent = document.getElementById('diff-content');
+      if (diffContent) {
+        if (diffs.length > 0) {
+          diffContent.innerHTML = diffs.map(d => {
+            const escaped = escapeHtml(d.diff || '');
+            return `<div class="mb-3"><span class="text-cyan-400 font-bold">--- File: ${escapeHtml(d.file)} ---</span>\n${escaped}</div>`;
+          }).join('\n');
+        } else {
+          diffContent.textContent = 'No automatic source diffs generated. All items require manual review.';
+        }
+      }
+
+      // Table Breakdown
+      const tableBody = document.getElementById('review-table-body');
+      if (tableBody) {
+        tableBody.innerHTML = '';
+        reviewItems.forEach((item, idx) => {
+          const row = document.createElement('tr');
+          row.className = 'hover:bg-slate-900/60 transition-colors';
+
+          const itemPatchStatus = String(item.patch_status || item.category || '').toUpperCase();
+          let patchBadgeClass = 'bg-amber-950/70 border-amber-500/50 text-amber-400';
+          let patchDisplayText = 'MANUAL REVIEW REQUIRED';
+
+          if (itemPatchStatus.includes('AUTOMATIC') || itemPatchStatus === 'PATCHED') {
+            patchBadgeClass = 'bg-cyan-950/70 border-cyan-500/50 text-cyan-400';
+            patchDisplayText = 'AUTOMATIC PATCH';
+          } else if (itemPatchStatus.includes('NO CHANGE') || itemPatchStatus === 'NO_CHANGE') {
+            patchBadgeClass = 'bg-slate-900 border-slate-700 text-slate-300';
+            patchDisplayText = 'NO CHANGE REQUIRED';
+          }
+
+          const itemValStatus = String(item.validation_status || '').toUpperCase();
+          let valBadgeClass = 'bg-emerald-950/70 border-emerald-500/50 text-emerald-400';
+          let valDisplayText = 'PASSED';
+
+          if (itemValStatus.includes('MANUAL') || patchDisplayText === 'MANUAL REVIEW REQUIRED') {
+            valBadgeClass = 'bg-amber-950/70 border-amber-500/50 text-amber-400';
+            valDisplayText = 'MANUAL REVIEW REQUIRED';
+          } else if (itemValStatus === 'FAILED') {
+            valBadgeClass = 'bg-rose-950/70 border-rose-500/50 text-rose-400';
+            valDisplayText = 'FAILED';
+          } else {
+            valBadgeClass = 'bg-emerald-950/70 border-emerald-500/50 text-emerald-400';
+            valDisplayText = 'PASSED';
+          }
+
+          row.innerHTML = `
+            <td class="px-3.5 py-3 whitespace-nowrap font-bold text-white">${escapeHtml(item.finding_id || `FINDING #${String(idx+1).padStart(2, '0')}`)}</td>
+            <td class="px-3.5 py-3 text-slate-300">${escapeHtml(item.file)}:${item.line || 1}</td>
+            <td class="px-3.5 py-3 text-slate-200">${escapeHtml(item.algorithm)} <span class="text-slate-400 text-[10px]">(${escapeHtml(item.context || 'general')})</span></td>
+            <td class="px-3.5 py-3 font-bold text-cyan-300">${escapeHtml(item.recommended_algorithm || 'NO DIRECT PQC')}</td>
+            <td class="px-3.5 py-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold border ${patchBadgeClass}">${escapeHtml(patchDisplayText)}</span></td>
+            <td class="px-3.5 py-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold border ${valBadgeClass}">${escapeHtml(valDisplayText)}</span></td>
+          `;
+          tableBody.appendChild(row);
+        });
+      }
+
+      // Check for Post-Approval / Post-Rejection State
+      const resultBox = document.getElementById('approval-result-box');
+      const actionButtons = document.getElementById('approval-action-bar');
+      const btnApprove = document.getElementById('btn-approve-migration');
+      const btnReject = document.getElementById('btn-reject-migration');
+
+      if (status === 'MIGRATION APPROVED') {
+        if (resultBox) {
+          resultBox.classList.remove('hidden');
+          resultBox.className = 'rounded-xl p-4 sm:p-5 border border-emerald-500/50 bg-emerald-950/40 backdrop-blur-md';
+          document.getElementById('approval-result-icon').className = 'w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 flex items-center justify-center font-bold text-xs';
+          document.getElementById('approval-result-icon').textContent = '✓';
+          document.getElementById('approval-result-title').textContent = 'MIGRATION APPROVED';
+          document.getElementById('approval-result-desc').textContent = 'Patches successfully applied to Qrypta isolated sandbox. Post-approval validation passed.';
+        }
+        if (btnApprove) btnApprove.disabled = true;
+        if (btnReject) btnReject.disabled = true;
+      } else if (status === 'MIGRATION REJECTED') {
+        if (resultBox) {
+          resultBox.classList.remove('hidden');
+          resultBox.className = 'rounded-xl p-4 sm:p-5 border border-rose-500/50 bg-rose-950/40 backdrop-blur-md';
+          document.getElementById('approval-result-icon').className = 'w-6 h-6 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/50 flex items-center justify-center font-bold text-xs';
+          document.getElementById('approval-result-icon').textContent = '✕';
+          document.getElementById('approval-result-title').textContent = 'MIGRATION REJECTED';
+          document.getElementById('approval-result-desc').textContent = 'Migration rejected. No patches were applied to any code.';
+        }
+        if (btnApprove) btnApprove.disabled = true;
+        if (btnReject) btnReject.disabled = true;
+      } else {
+        if (resultBox) resultBox.classList.add('hidden');
+        if (btnApprove) btnApprove.disabled = false;
+        if (btnReject) btnReject.disabled = false;
+      }
+    }
+
+    async function handleApproveMigration() {
+      const btnApprove = document.getElementById('btn-approve-migration');
+      const btnReject = document.getElementById('btn-reject-migration');
+      if (btnApprove) btnApprove.disabled = true;
+      if (btnReject) btnReject.disabled = true;
+
+      try {
+        const response = await fetch('/api/migration/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const resData = await response.json();
+        if (resData.success) {
+          const resultBox = document.getElementById('approval-result-box');
+          if (resultBox) {
+            resultBox.classList.remove('hidden');
+            resultBox.className = 'rounded-xl p-4 sm:p-5 border border-emerald-500/50 bg-emerald-950/40 backdrop-blur-md';
+            document.getElementById('approval-result-icon').className = 'w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 flex items-center justify-center font-bold text-xs';
+            document.getElementById('approval-result-icon').textContent = '✓';
+            document.getElementById('approval-result-title').textContent = 'MIGRATION APPROVED';
+            document.getElementById('approval-result-desc').textContent = 'Patch applied to Qrypta isolated sandbox. Post-approval validation passed.';
+          }
+
+          const statusBadge = document.getElementById('review-status-badge');
+          if (statusBadge) {
+            statusBadge.textContent = 'MIGRATION APPROVED';
+            statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 uppercase tracking-wider font-bold';
+          }
+
+          const stageApprSub = document.getElementById('stage-approval-sub');
+          const stageApprPill = document.getElementById('stage-approval-pill');
+          if (stageApprSub) stageApprSub.textContent = 'Approved';
+          if (stageApprPill) stageApprPill.className = 'p-1.5 rounded bg-emerald-950/80 border border-emerald-500/60 text-emerald-300 flex flex-col items-center shadow-[0_0_10px_rgba(52,211,153,0.3)]';
+
+          const statusText = document.getElementById('status-text');
+          const statusDot = document.getElementById('status-pulse-dot');
+          if (statusText) {
+            statusText.textContent = 'MIGRATION APPROVED';
+            statusText.className = 'text-[9px] font-mono font-semibold tracking-wider text-emerald-400 uppercase';
+          }
+          if (statusDot) {
+            statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse';
+          }
+        } else {
+          alert('Approval error: ' + (resData.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Network error during approval: ' + err.message);
+      }
+    }
+
+    async function handleRejectMigration() {
+      const btnApprove = document.getElementById('btn-approve-migration');
+      const btnReject = document.getElementById('btn-reject-migration');
+      if (btnApprove) btnApprove.disabled = true;
+      if (btnReject) btnReject.disabled = true;
+
+      try {
+        const response = await fetch('/api/migration/reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const resData = await response.json();
+        if (resData.success) {
+          const resultBox = document.getElementById('approval-result-box');
+          if (resultBox) {
+            resultBox.classList.remove('hidden');
+            resultBox.className = 'rounded-xl p-4 sm:p-5 border border-rose-500/50 bg-rose-950/40 backdrop-blur-md';
+            document.getElementById('approval-result-icon').className = 'w-6 h-6 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/50 flex items-center justify-center font-bold text-xs';
+            document.getElementById('approval-result-icon').textContent = '✕';
+            document.getElementById('approval-result-title').textContent = 'MIGRATION REJECTED';
+            document.getElementById('approval-result-desc').textContent = 'Migration rejected. No changes applied.';
+          }
+
+          const statusBadge = document.getElementById('review-status-badge');
+          if (statusBadge) {
+            statusBadge.textContent = 'MIGRATION REJECTED';
+            statusBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/40 uppercase tracking-wider font-bold';
+          }
+
+          const stageApprSub = document.getElementById('stage-approval-sub');
+          const stageApprPill = document.getElementById('stage-approval-pill');
+          if (stageApprSub) stageApprSub.textContent = 'Rejected';
+          if (stageApprPill) stageApprPill.className = 'p-1.5 rounded bg-rose-950/80 border border-rose-500/60 text-rose-300 flex flex-col items-center shadow-[0_0_10px_rgba(244,63,94,0.3)]';
+
+          const statusText = document.getElementById('status-text');
+          const statusDot = document.getElementById('status-pulse-dot');
+          if (statusText) {
+            statusText.textContent = 'MIGRATION REJECTED';
+            statusText.className = 'text-[9px] font-mono font-semibold tracking-wider text-rose-400 uppercase';
+          }
+          if (statusDot) {
+            statusDot.className = 'w-2 h-2 rounded-full bg-rose-400 shadow-[0_0_8px_#f43f5e] animate-pulse';
+          }
+        } else {
+          alert('Rejection error: ' + (resData.error || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Network error during rejection: ' + err.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // Reset interaction demo
+    function resetToLocked() {
+      const lockedState = document.getElementById('locked-state');
+      const resultsState = document.getElementById('results-state');
+      const reviewState = document.getElementById('review-state');
+      const scanBtn = document.getElementById('scan-btn');
+      const animatedKey = document.getElementById('animated-key');
+      const shacklePath = document.getElementById('shackle-path');
+      const statusText = document.getElementById('status-text');
+      const statusDot = document.getElementById('status-pulse-dot');
+      const canvasEl = document.getElementById('matrix-canvas');
+      const repoPillName = document.getElementById('repo-pill-name');
+      const targetSubtext = document.getElementById('target-subtext');
+      const scanBtnText = document.getElementById('scan-btn-text');
+      const folderInput = document.getElementById('folder-input');
+
+      selectedFiles = [];
+      selectedFolderName = "";
+      if (folderInput) folderInput.value = '';
+
+      if (reviewState) reviewState.classList.add('hidden');
+      if (resultsState) resultsState.classList.add('hidden');
+      if (lockedState) lockedState.classList.remove('hidden');
+
+      repoPillName.textContent = 'No repository selected';
+      targetSubtext.textContent = 'No repository selected';
+      scanBtnText.innerHTML = `
+        <svg class="w-4 h-4 text-black" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewBox="0 0 24 24">
+          <path d="M2 12h20M12 2v20"></path>
+          <circle cx="12" cy="12" r="9"></circle>
+        </svg>
+        SCAN REPOSITORY
+      `;
+
+      shacklePath.setAttribute('d', 'M7 11V7a5 5 0 0 1 10 0v4');
+      shacklePath.parentElement.classList.remove('shackle-unlocked');
+      animatedKey.classList.add('hidden');
+      animatedKey.classList.remove('key-animating');
+
+      scanBtn.disabled = false;
+      scanBtn.classList.remove('opacity-80', 'cursor-not-allowed');
+
+      statusText.textContent = 'SYSTEM READY';
+      statusText.className = 'text-[9px] font-mono font-semibold tracking-wider text-slate-200 uppercase';
+      statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse';
+
+      pulseBoost = false;
+      canvasEl.classList.remove('matrix-active');
+    }
+  </script>
+</body>
+</html>

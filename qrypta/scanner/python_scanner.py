@@ -14,6 +14,7 @@ from qrypta.scanner.rules import (
     PRIMITIVE_ASYMMETRIC_KEY_EXCHANGE,
     PRIMITIVE_SYMMETRIC_ENCRYPTION,
     PRIMITIVE_HASH_FUNCTION,
+    PRIMITIVE_PASSWORD_HASHING,
     PRIMITIVE_JWT_SIGNATURE,
     PRIMITIVE_PROTOCOL,
 )
@@ -30,6 +31,7 @@ KNOWN_LIBRARIES = {
     "nacl": "PyNaCl",
     "ecdsa": "ecdsa",
     "pyDes": "pyDes",
+    "bcrypt": "bcrypt",
 }
 
 # Regex for string/constant lookup fallback
@@ -55,7 +57,8 @@ class PythonASTVisitor(ast.NodeVisitor):
         self.findings: List[Finding] = []
         self.imported_modules: Dict[str, str] = {}  # alias -> original_module
         self.imported_symbols: Dict[str, Tuple[str, str]] = {}  # alias -> (module, symbol)
-        self.reported_lines: Set[Tuple[int, str]] = set()  # (line, algorithm) to avoid duplicate hits on same line
+        self.local_vars: Dict[str, Any] = {}  # var_name -> literal string or list of strings
+        self.reported_lines: Set[Tuple[int, str, Optional[str], str, str, str, Optional[str]]] = set()
 
     def _get_line_evidence(self, lineno: int) -> str:
         """Extract stripped source line as evidence."""
@@ -73,13 +76,13 @@ class PythonASTVisitor(ast.NodeVisitor):
         library: Optional[str],
         confidence: float,
     ) -> None:
-        """Record finding if not already reported for this line and algorithm."""
-        dedup_key = (line, algorithm)
+        """Record finding if an identical finding has not already been reported."""
+        evidence = self._get_line_evidence(line)
+        dedup_key = (line, algorithm, variant, primitive, usage, evidence, library)
         if dedup_key in self.reported_lines:
             return
         self.reported_lines.add(dedup_key)
 
-        evidence = self._get_line_evidence(line)
         self.findings.append(
             Finding(
                 algorithm=algorithm,
@@ -94,49 +97,78 @@ class PythonASTVisitor(ast.NodeVisitor):
             )
         )
 
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """Track simple local string and string-list assignments."""
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.local_vars[target.id] = node.value.value
+        elif isinstance(node.value, (ast.List, ast.Tuple, ast.Set)):
+            const_list = [
+                elt.value
+                for elt in node.value.elts
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            ]
+            if const_list:
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        self.local_vars[target.id] = const_list
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        """Track function parameter default values with string constants."""
+        self._track_param_defaults(node)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """Track async function parameter default values with string constants."""
+        self._track_param_defaults(node)
+        self.generic_visit(node)
+
+    def _track_param_defaults(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        pos_args = node.args.args
+        defaults = node.args.defaults
+        if defaults:
+            offset = len(pos_args) - len(defaults)
+            for idx, default in enumerate(defaults):
+                arg = pos_args[offset + idx]
+                if isinstance(default, ast.Constant) and isinstance(default.value, str):
+                    self.local_vars[arg.arg] = default.value
+                elif isinstance(default, (ast.List, ast.Tuple, ast.Set)):
+                    const_list = [
+                        elt.value
+                        for elt in default.elts
+                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                    ]
+                    if const_list:
+                        self.local_vars[arg.arg] = const_list
+        for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+            if default and isinstance(default, ast.Constant) and isinstance(default.value, str):
+                self.local_vars[arg.arg] = default.value
+            elif default and isinstance(default, (ast.List, ast.Tuple, ast.Set)):
+                const_list = [
+                    elt.value
+                    for elt in default.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                ]
+                if const_list:
+                    self.local_vars[arg.arg] = const_list
+
     def visit_Import(self, node: ast.Import) -> None:
-        """Track direct imports."""
+        """Track direct imports without emitting standalone findings."""
         for alias in node.names:
             name = alias.name
             asname = alias.asname or name
             self.imported_modules[asname] = name
-
-            # Detect direct library imports
-            base = name.split(".")[0]
-            if base in KNOWN_LIBRARIES:
-                lib_name = KNOWN_LIBRARIES[base]
-                # If specific algorithm module is imported (e.g. import hashlib)
-                # We do not immediately flag 'import hashlib' as finding to avoid noise,
-                # but we track the context.
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        """Track 'from module import symbol' imports."""
+        """Track 'from module import symbol' imports without emitting standalone findings."""
         module = node.module or ""
-        base_mod = module.split(".")[0]
-        lib_name = KNOWN_LIBRARIES.get(base_mod, base_mod)
-
         for alias in node.names:
             sym = alias.name
             asname = alias.asname or sym
             self.imported_symbols[asname] = (module, sym)
-
-            # Check if specific algorithm symbol is imported (e.g. from Crypto.Cipher import AES)
-            lower_sym = sym.lower()
-            if lower_sym in NAME_TO_RULE_KEY and base_mod in {"Crypto", "Cryptodome", "cryptography", "nacl", "ecdsa"}:
-                rule_key = NAME_TO_RULE_KEY[lower_sym]
-                rule = ALGORITHM_RULES.get(rule_key)
-                if rule:
-                    self._add_finding(
-                        algorithm=rule["algorithm"],
-                        variant=rule.get("variant"),
-                        primitive=rule["primitive"],
-                        usage="import",
-                        line=node.lineno,
-                        library=lib_name,
-                        confidence=0.85,
-                    )
-
         self.generic_visit(node)
 
     def _resolve_call_name(self, node: ast.AST) -> Tuple[str, Optional[str]]:
@@ -208,45 +240,110 @@ class PythonASTVisitor(ast.NodeVisitor):
                             confidence=0.95,
                         )
 
-        # 2. PyJWT / jwt.encode / jwt.decode
+        # 2. PyJWT / jwt.encode / jwt.decode (literal and local variable resolution)
         if "jwt." in lower_call or lib in {"PyJWT", "jwt", "python-jose"}:
-            algo_found = None
-            # Check keywords for algorithm or algorithms
+            algos_to_record: List[str] = []
             for kw in node.keywords:
                 if kw.arg == "algorithm":
                     if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
-                        algo_found = kw.value.value
+                        algos_to_record.append(kw.value.value)
+                    elif isinstance(kw.value, ast.Name) and kw.value.id in self.local_vars:
+                        val = self.local_vars[kw.value.id]
+                        if isinstance(val, str):
+                            algos_to_record.append(val)
+                        elif isinstance(val, list):
+                            algos_to_record.extend(val)
                 elif kw.arg == "algorithms":
                     if isinstance(kw.value, (ast.List, ast.Tuple, ast.Set)):
                         for elt in kw.value.elts:
                             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                algo_val = elt.value.upper()
-                                if algo_val in ALGORITHM_RULES:
-                                    rule = ALGORITHM_RULES[algo_val]
-                                    self._add_finding(
-                                        algorithm=rule["algorithm"],
-                                        variant=rule.get("variant"),
-                                        primitive=rule["primitive"],
-                                        usage="token_verification" if "decode" in lower_call else "token_signing",
-                                        line=lineno,
-                                        library=lib or "PyJWT",
-                                        confidence=0.95,
-                                    )
-            if algo_found:
-                algo_upper = algo_found.upper()
-                if algo_upper in ALGORITHM_RULES:
-                    rule = ALGORITHM_RULES[algo_upper]
+                                algos_to_record.append(elt.value)
+                            elif isinstance(elt, ast.Name) and elt.id in self.local_vars:
+                                val = self.local_vars[elt.id]
+                                if isinstance(val, str):
+                                    algos_to_record.append(val)
+                    elif isinstance(kw.value, ast.Name) and kw.value.id in self.local_vars:
+                        val = self.local_vars[kw.value.id]
+                        if isinstance(val, list):
+                            algos_to_record.extend(val)
+                        elif isinstance(val, str):
+                            algos_to_record.append(val)
+
+            if not algos_to_record and len(node.args) >= 3:
+                arg3 = node.args[2]
+                if isinstance(arg3, ast.Constant) and isinstance(arg3.value, str):
+                    algos_to_record.append(arg3.value)
+                elif isinstance(arg3, ast.Name) and arg3.id in self.local_vars:
+                    val = self.local_vars[arg3.id]
+                    if isinstance(val, str):
+                        algos_to_record.append(val)
+                    elif isinstance(val, list):
+                        algos_to_record.extend(val)
+
+            for algo in algos_to_record:
+                algo_upper = algo.upper()
+                rule_key = NAME_TO_RULE_KEY.get(algo.lower(), algo_upper)
+                if rule_key in ALGORITHM_RULES:
+                    rule = ALGORITHM_RULES[rule_key]
                     self._add_finding(
                         algorithm=rule["algorithm"],
                         variant=rule.get("variant"),
                         primitive=rule["primitive"],
-                        usage="token_signing" if "encode" in lower_call else "token_verification",
+                        usage="token_verification" if "decode" in lower_call else "token_signing",
                         line=lineno,
                         library=lib or "PyJWT",
                         confidence=0.95,
                     )
 
-        # 3. cryptography library detections
+        # 3. bcrypt password hashing and verification
+        if (
+            "bcrypt.hashpw" in lower_call
+            or "bcrypt.checkpw" in lower_call
+            or ("bcrypt" in lower_call and ("hash" in lower_call or "check" in lower_call or "gensalt" in lower_call))
+        ):
+            self._add_finding(
+                algorithm="bcrypt",
+                variant=None,
+                primitive=PRIMITIVE_PASSWORD_HASHING,
+                usage="authentication",
+                line=lineno,
+                library="bcrypt",
+                confidence=0.95,
+            )
+
+        # 4. cryptography library detections
+        # AESGCM (cryptography AEAD)
+        if "aesgcm" in lower_call or (
+            lower_call.endswith("aesgcm") and lib in {"cryptography", "cryptography.hazmat.primitives.ciphers.aead"}
+        ) or (
+            isinstance(node.func, ast.Name) and node.func.id == "AESGCM"
+        ):
+            self._add_finding(
+                algorithm="AES",
+                variant=None,
+                primitive=PRIMITIVE_SYMMETRIC_ENCRYPTION,
+                usage="encryption",
+                line=lineno,
+                library="cryptography",
+                confidence=0.95,
+            )
+
+        # ECDSA sign / verify / signature operations (e.g. ec.ECDSA(...) or private_key.sign(..., ec.ECDSA(...)))
+        if "ec.ecdsa" in lower_call or (
+            isinstance(node.func, ast.Name) and node.func.id == "ECDSA"
+        ) or (
+            "ecdsa" in lower_call and ("sign" in lower_call or "verify" in lower_call)
+        ):
+            self._add_finding(
+                algorithm="ECDSA",
+                variant=None,
+                primitive=PRIMITIVE_ASYMMETRIC_SIGNATURE,
+                usage="signature",
+                line=lineno,
+                library="cryptography",
+                confidence=0.95,
+            )
+
         # RSA key generation
         if "rsa.generate_private_key" in lower_call or lower_call == "generate_private_key":
             # Extract key size if present
@@ -366,7 +463,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                 confidence=0.95,
             )
 
-        # 4. PyCryptodome / Crypto.Cipher / Crypto.PublicKey calls
+        # 5. PyCryptodome / Crypto.Cipher / Crypto.PublicKey calls
         if "aes.new" in lower_call:
             self._add_finding(
                 algorithm="AES",
@@ -405,7 +502,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                 confidence=0.95,
             )
 
-        # 5. SSL / TLS usage (create_default_context, SSLContext, etc.)
+        # 6. SSL / TLS usage (create_default_context, SSLContext, etc.)
         if "ssl.create_default_context" in lower_call or "create_default_context" in lower_call:
             self._add_finding(
                 algorithm="TLS",
@@ -418,7 +515,7 @@ class PythonASTVisitor(ast.NodeVisitor):
             )
         elif "sslcontext" in lower_call or "ssl.sslcontext" in lower_call:
             self._add_finding(
-                algorithm="TLS/SSL",
+                algorithm="TLS",
                 variant=None,
                 primitive=PRIMITIVE_PROTOCOL,
                 usage="secure_channel",
